@@ -1,0 +1,13 @@
+train: /Users/kesavp/Projects/ATM_AI_SECURITY/data/raw/helmet_dataset/train/images
+val: /Users/kesavp/Projects/ATM_AI_SECURITY/data/raw/helmet_dataset/valid/images
+test: /Users/kesavp/Projects/ATM_AI_SECURITY/data/raw/helmet_dataset/test/images
+
+nc: 2
+names: ['With Helmet', 'Without Helmet']
+
+roboflow:
+  workspace: atmaisecurity
+  project: atm-helmet-mask
+  version: 3
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/atmaisecurity/atm-helmet-mask/dataset/3

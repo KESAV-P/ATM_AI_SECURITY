@@ -1,0 +1,6 @@
+train: /Users/kesavp/Projects/ATM_AI_SECURITY/dataset/images/train
+val: /Users/kesavp/Projects/ATM_AI_SECURITY/dataset/images/valid
+test: /Users/kesavp/Projects/ATM_AI_SECURITY/dataset/images/test
+
+nc: 2
+names: ['no_mask', 'mask']

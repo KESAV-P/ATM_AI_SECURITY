@@ -8,7 +8,8 @@ venv/
 
 # YOLO / ML
 runs/
-*.pt
+# *.pt
+archive.zip
 
 # OS
 .DS_Store
