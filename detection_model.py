@@ -27,6 +27,10 @@ class ATMActivityDetector:
                 print(f"Loaded Custom Mask Model: {self.mask_model_path}")
             except Exception as e:
                 print(f"Error loading mask model: {e}")
+                
+        # Stabilization Counters (Debounce)
+        self.helmet_counter = 0
+        self.mask_counter = 0
 
     def detect(self, frame):
         # --- 1. DETECT PEOPLE ---
@@ -45,35 +49,39 @@ class ATMActivityDetector:
         helmet_detected = False
         mask_detected = False
 
-        # --- 2. DETECT HELMETS (Custom Model) ---
+        raw_helmet_detected = False
         if self.helmet_model:
-            # Increased confidence to 0.80 to avoid false positives on bare heads
+            # STRICT MODE: Confidence 0.80 (Balanced)
             helmet_results = self.helmet_model.predict(source=frame, conf=0.80, verbose=False)
             for r in helmet_results:
                 if r.boxes:
                     for box in r.boxes:
                         cls_id = int(box.cls[0])
-                        class_name = self.helmet_model.names[cls_id]
                         conf = float(box.conf[0])
-                        
-                        # Assuming class 'With Helmet' or similar. 
-                        # Update logic based on your specific training labels if needed.
-                        # Usually custom datasets are: 0: With Helmet, 1: Without Helmet
-                        # We trigger on 'With Helmet' or just detection if single class.
-                        
-                        is_helmet = False
-                        if "NO" not in class_name.upper() and "WITHOUT" not in class_name.upper():
-                             # Likely "Helmet" or "With Helmet"
-                             is_helmet = True
-
-                        if is_helmet:
-                            helmet_detected = True
+                        if cls_id == 0:
+                            # Verify box size to avoid tiny background clusters
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            # Blue Box for Helmet
-                            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                            cv2.putText(frame, f"{class_name} {conf:.2f}", (x1, y1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                            box_h = y2 - y1
+                            
+                            # Size Check: Helmet must be at least 15% of screen height
+                            if box_h > frame.shape[0] * 0.15:
+                                raw_helmet_detected = True
+                                # Blue Box
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                                cv2.putText(frame, f"HELMET {conf:.2f}", (x1, y1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                                print(f"⚠️ Possible Helmet Detected: Conf={conf:.2f}")
+
+        # Persistence Logic for Helmet (Slower build-up, faster decay)
+        if raw_helmet_detected:
+            self.helmet_counter = min(self.helmet_counter + 1, 15) # Cap at 15
+        else:
+            self.helmet_counter = max(self.helmet_counter - 2, 0) # Decay twice as fast
+
+        # Trigger only if consistent for 6+ frames (Very stable)
+        helmet_confirmed = self.helmet_counter > 6
 
         # --- 3. DETECT MASKS (Custom Model) ---
+        raw_mask_detected = False
         if self.mask_model:
             mask_results = self.mask_model.predict(source=frame, conf=0.6, verbose=False)
             for r in mask_results:
@@ -81,19 +89,25 @@ class ATMActivityDetector:
                     for box in r.boxes:
                         cls_id = int(box.cls[0])
                         class_name = self.mask_model.names[cls_id]
-                        conf = float(box.conf[0])
                         
-                        # Logic for mask: 'With Mask' is the target.
                         is_mask = False
                         if "NO" not in class_name.upper() and "WITHOUT" not in class_name.upper():
                             is_mask = True
                         
                         if is_mask:
-                            mask_detected = True
+                            raw_mask_detected = True
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            # Red Box for Mask
+                            # Red Box
                             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(frame, f"{class_name} {conf:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                            cv2.putText(frame, f"MASK", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+        # Persistence Logic for Mask
+        if raw_mask_detected:
+            self.mask_counter = min(self.mask_counter + 1, 10)
+        else:
+            self.mask_counter = max(self.mask_counter - 1, 0)
+            
+        mask_confirmed = self.mask_counter > 3
 
         # ---------------- CAMERA BLACKOUT ----------------
         gray_full = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -101,8 +115,8 @@ class ATMActivityDetector:
         camera_blackout = brightness < 20
 
         return {
-            "helmet": bool(helmet_detected),
-            "mask": bool(mask_detected),
+            "helmet": bool(helmet_confirmed),
+            "mask": bool(mask_confirmed),
             "sunglasses": False,
             "people_count": people_count,
             "camera_blackout": bool(camera_blackout),
