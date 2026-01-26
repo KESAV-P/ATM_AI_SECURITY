@@ -103,8 +103,50 @@ import os
 import threading
 import time
 
+import subprocess
+
 # Global variable to manage alarm thread
 _alarm_playing = False
+
+def make_android_call():
+    """
+    Attempts to initiate a call on a connected Android device via ADB.
+    Requires: 'adb' installed and a phone connected with USB Debugging enabled.
+    """
+    police_number = "7010142014"  # Change this to the target number
+    adb_path = "/Users/kesavp/Library/Android/sdk/platform-tools/adb"
+    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
+    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
+    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
+    cmd_dial = f"{adb_path} shell am start -a android.intent.action.DIAL -d tel:{police_number}"
+    
+    # Try multiple keys: TAB (61) to focus, ENTER (66), CALL (5)
+    cmd_tab = f"{adb_path} shell input keyevent 61"
+    cmd_enter = f"{adb_path} shell input keyevent 66"
+    cmd_call = f"{adb_path} shell input keyevent 5"
+    
+    print(f"📞 Attempting to call {police_number} via Android ADB...")
+    print("ℹ️  REDMI USERS: Enable 'USB Debugging (Security Settings)' in Developer Options!")
+    
+    try:
+        # 1. Open Dialer (Pre-fill number)
+        subprocess.run(cmd_dial, shell=True, capture_output=True, text=True)
+        time.sleep(2)
+        
+        # 2. Try TAB twice to focus button (Redmi specific)
+        subprocess.run(cmd_tab, shell=True, capture_output=True, text=True)
+        subprocess.run(cmd_tab, shell=True, capture_output=True, text=True)
+        
+        # 3. Press ENTER
+        subprocess.run(cmd_enter, shell=True, capture_output=True, text=True)
+        
+        # 4. Press CALL (Backup)
+        subprocess.run(cmd_call, shell=True, capture_output=True, text=True)
+        
+        print("✅ Call initiated (Keys Sent).")
+            
+    except Exception as e:
+        print(f"❌ ADB Execution Error: {e}")
 
 def play_alarm():
     """Plays a system alert sound in a separate thread to avoid blocking UI."""
@@ -116,12 +158,15 @@ def play_alarm():
         global _alarm_playing
         _alarm_playing = True
         
-        # Play the downloaded siren sound (Smoke Detector/Alarm style)
+        # 1. Trigger the Phone Call (once)
+        make_android_call()
+        
+        # 2. Play the downloaded siren sound (Smoke Detector/Alarm style)
         for _ in range(3):
             os.system("afplay siren.wav")
         
-        # Voice announcement
-        os.system("say 'Security Breach Detected.'")
+        # 3. Voice announcement
+        os.system("say 'Security Breach Detected. Police have been notified.'")
         
         _alarm_playing = False
 

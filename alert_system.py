@@ -32,13 +32,13 @@ def decide_alert(detection_output):
     """
     global _blackout_start_time
 
-    # 1. CRITICAL: Camera Blackout (> 15 seconds)
+    # 1. CRITICAL: Camera Blackout (> 10 seconds)
     if detection_output.get("camera_blackout", False):
         if _blackout_start_time is None:
             _blackout_start_time = time.time()
         
         elapsed = time.time() - _blackout_start_time
-        if elapsed > 15:
+        if elapsed > 10:
             reason = f"Camera blackout detected for {int(elapsed)}s"
             log_event("HIGH", reason)
             return "HIGH_ALERT", reason
