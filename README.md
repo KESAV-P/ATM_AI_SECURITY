@@ -24,3 +24,5 @@ An AI-based ATM surveillance system to detect suspicious activities such as:
 
 - Kesav – Detection & ML
 - Hari – Alert System
+
+./venv/bin/python3 main.py
