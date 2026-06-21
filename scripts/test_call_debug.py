@@ -3,7 +3,7 @@ import subprocess
 import os
 
 # Your Details
-POLICE_NUMBER = "7010142014"
+POLICE_NUMBER = "+917010142014"
 ADB_PATH = "/Users/kesavp/Library/Android/sdk/platform-tools/adb"
 
 def run_adb(command):

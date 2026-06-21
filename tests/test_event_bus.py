@@ -1,10 +1,10 @@
 import unittest
-from event_bus import generate_event, COOLDOWN_SECONDS, _last_triggered
+from event_bus import generate_event, EVENT_COOLDOWN, _last_event_time
 import time
 
 class TestEventBus(unittest.TestCase):
     def setUp(self):
-        _last_triggered.clear()
+        _last_event_time.clear()
         self.base_data = {
             "helmet": False,
             "mask": False,
@@ -19,12 +19,12 @@ class TestEventBus(unittest.TestCase):
         events = generate_event(data)
         self.assertEqual(len(events), 0)
 
-    def test_multiple_persons_trigger(self):
+    def test_multiple_people_trigger(self):
         data = self.base_data.copy()
         data["people_count"] = 2
         events = generate_event(data)
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "MULTIPLE_PERSONS")
+        self.assertEqual(events[0]["type"], "MULTIPLE_PEOPLE")
         self.assertEqual(events[0]["severity"], "HIGH")
 
     def test_helmet_trigger(self):
@@ -46,10 +46,11 @@ class TestEventBus(unittest.TestCase):
         events2 = generate_event(data)
         self.assertEqual(len(events2), 0)
         
-        # Manually reset cooldown (mocking time passing would be better but this is quick)
-        _last_triggered.clear()
+        # Manually reset cooldown
+        _last_event_time.clear()
         events3 = generate_event(data)
         self.assertEqual(len(events3), 1)
 
 if __name__ == '__main__':
     unittest.main()
+

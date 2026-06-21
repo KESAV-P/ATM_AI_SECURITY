@@ -83,6 +83,8 @@ def main():
             # TRIGGER ALARM SOUND ON HIGH ALERT
             if alert_level == "HIGH_ALERT":
                 play_alarm()
+            else:
+                stop_alarm()
             
             # 3. Draw UI
             frame = draw_ui(frame, alert_level, reason)
@@ -105,74 +107,127 @@ import time
 
 import subprocess
 
-# Global variable to manage alarm thread
-_alarm_playing = False
+# Global variables to manage alarm state and process
+_alarm_active = False
+_siren_proc = None
+_call_made = False
 
 def make_android_call():
     """
     Attempts to initiate a call on a connected Android device via ADB.
     Requires: 'adb' installed and a phone connected with USB Debugging enabled.
     """
-    police_number = "7010142014"  # Change this to the target number
+    police_number = "+917010142014"  # Sync with target police number
     adb_path = "/Users/kesavp/Library/Android/sdk/platform-tools/adb"
-    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
-    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
-    # 'CALL' is blocked by modern Android security. 'DIAL' opens the keypad.
-    cmd_dial = f"{adb_path} shell am start -a android.intent.action.DIAL -d tel:{police_number}"
-    
-    # Try multiple keys: TAB (61) to focus, ENTER (66), CALL (5)
-    cmd_tab = f"{adb_path} shell input keyevent 61"
-    cmd_enter = f"{adb_path} shell input keyevent 66"
-    cmd_call = f"{adb_path} shell input keyevent 5"
     
     print(f"📞 Attempting to call {police_number} via Android ADB...")
     print("ℹ️  REDMI USERS: Enable 'USB Debugging (Security Settings)' in Developer Options!")
     
     try:
-        # 1. Open Dialer (Pre-fill number)
+        # Check if device is connected first
+        res = subprocess.run([adb_path, "devices"], capture_output=True, text=True)
+        lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+        devices = [line for line in lines[1:] if "device" in line and "emulator" not in line]
+        if not devices:
+            print("⚠️ WARNING: No Android device detected via USB debugging. Please connect a device and check screen for USB Debugging permission.")
+            return
+
+        # Try direct call (ACTION_CALL) first
+        cmd_direct = f"{adb_path} shell am start -a android.intent.action.CALL -d tel:{police_number}"
+        res_call = subprocess.run(cmd_direct, shell=True, capture_output=True, text=True)
+        if "SecurityException" not in res_call.stderr and "Error" not in res_call.stderr:
+            print("✅ Direct call initiated (android.intent.action.CALL).")
+            return
+
+        print("🔄 Direct call failed (SecurityException). Falling back to ACTION_DIAL and key emulation...")
+        
+        # Fallback: Open Dialer (Pre-fill number)
+        cmd_dial = f"{adb_path} shell am start -a android.intent.action.DIAL -d tel:{police_number}"
         subprocess.run(cmd_dial, shell=True, capture_output=True, text=True)
         time.sleep(2)
         
-        # 2. Try TAB twice to focus button (Redmi specific)
+        # Try TAB twice to focus button (Redmi specific)
+        cmd_tab = f"{adb_path} shell input keyevent 61"
         subprocess.run(cmd_tab, shell=True, capture_output=True, text=True)
         subprocess.run(cmd_tab, shell=True, capture_output=True, text=True)
         
-        # 3. Press ENTER
+        # Press ENTER
+        cmd_enter = f"{adb_path} shell input keyevent 66"
         subprocess.run(cmd_enter, shell=True, capture_output=True, text=True)
         
-        # 4. Press CALL (Backup)
+        # Press CALL (Backup)
+        cmd_call = f"{adb_path} shell input keyevent 5"
         subprocess.run(cmd_call, shell=True, capture_output=True, text=True)
         
-        print("✅ Call initiated (Keys Sent).")
+        print("✅ Call initiated via dialer fallback (Keys Sent).")
             
     except Exception as e:
         print(f"❌ ADB Execution Error: {e}")
 
 def play_alarm():
-    """Plays a system alert sound in a separate thread to avoid blocking UI."""
-    global _alarm_playing
-    if _alarm_playing:
+    """Plays a system alert sound in a separate thread and allows immediate stopping."""
+    global _alarm_active, _call_made
+    
+    # 1. Trigger the Phone Call (once per alert session)
+    if not _call_made:
+        _call_made = True
+        t_call = threading.Thread(target=make_android_call)
+        t_call.daemon = True
+        t_call.start()
+        
+    if _alarm_active:
         return
+    _alarm_active = True
 
     def _sound_loop():
-        global _alarm_playing
-        _alarm_playing = True
-        
-        # 1. Trigger the Phone Call (once)
-        make_android_call()
+        global _alarm_active, _siren_proc
         
         # 2. Play the downloaded siren sound (Smoke Detector/Alarm style)
         for _ in range(3):
-            os.system("afplay siren.wav")
+            if not _alarm_active:
+                break
+            try:
+                _siren_proc = subprocess.Popen(["afplay", "siren.wav"])
+                _siren_proc.wait()
+            except Exception as e:
+                print(f"Error playing sound: {e}")
+                break
         
         # 3. Voice announcement
-        os.system("say 'Security Breach Detected. Police have been notified.'")
+        if _alarm_active:
+            try:
+                _siren_proc = subprocess.Popen(["say", "Security Breach Detected. Police have been notified."])
+                _siren_proc.wait()
+            except Exception as e:
+                pass
         
-        _alarm_playing = False
+        _alarm_active = False
+        _siren_proc = None
 
-    t = threading.Thread(target=_sound_loop)
-    t.daemon = True
-    t.start()
+    t_sound = threading.Thread(target=_sound_loop)
+    t_sound.daemon = True
+    t_sound.start()
+
+def stop_alarm():
+    """Immediately stops any playing siren or voice processes and resets call status."""
+    global _alarm_active, _siren_proc, _call_made
+    _alarm_active = False
+    _call_made = False
+    
+    if _siren_proc is not None:
+        try:
+            _siren_proc.kill()
+            _siren_proc.wait(timeout=1)
+        except Exception:
+            pass
+        _siren_proc = None
+        
+    # Force kill any residual audio/voice processes to be absolutely sure
+    try:
+        subprocess.run(["killall", "afplay"], capture_output=True)
+        subprocess.run(["killall", "say"], capture_output=True)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     main()

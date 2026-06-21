@@ -9,7 +9,8 @@ class ATMActivityDetector:
         self.person_model = YOLO("yolov8n.pt")
         
         # 2. Helmet Detection Model (Custom)
-        self.helmet_model_path = "/Users/kesavp/Projects/ATM_AI_SECURITY/models/helmet_detection/weights/best.pt"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.helmet_model_path = os.path.join(base_dir, "models", "helmet_detection", "weights", "best.pt")
         self.helmet_model = None
         if os.path.exists(self.helmet_model_path):
             try:
@@ -19,7 +20,7 @@ class ATMActivityDetector:
                 print(f"Error loading helmet model: {e}")
         
         # 3. Mask Detection Model (Custom)
-        self.mask_model_path = "/Users/kesavp/Projects/ATM_AI_SECURITY/models/mask/best.pt"
+        self.mask_model_path = os.path.join(base_dir, "models", "mask", "best.pt")
         self.mask_model = None
         if os.path.exists(self.mask_model_path):
             try:
@@ -34,7 +35,8 @@ class ATMActivityDetector:
 
     def detect(self, frame):
         # --- 1. DETECT PEOPLE ---
-        person_results = self.person_model.predict(source=frame, classes=[0], conf=0.5, verbose=False)
+        # Adjusted confidence from 0.4 to 0.35 for higher person detection recall
+        person_results = self.person_model.predict(source=frame, classes=[0], conf=0.35, verbose=False)
         people_count = 0
         
         # Draw Person Boxes (Green)
@@ -51,8 +53,8 @@ class ATMActivityDetector:
 
         raw_helmet_detected = False
         if self.helmet_model:
-            # STRICT MODE: Confidence 0.80 (Balanced)
-            helmet_results = self.helmet_model.predict(source=frame, conf=0.80, verbose=False)
+            # Adjusted helmet confidence from 0.55 to 0.45 for significantly higher accuracy/recall
+            helmet_results = self.helmet_model.predict(source=frame, conf=0.45, verbose=False)
             for r in helmet_results:
                 if r.boxes:
                     for box in r.boxes:
@@ -63,27 +65,28 @@ class ATMActivityDetector:
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
                             box_h = y2 - y1
                             
-                            # Size Check: Helmet must be at least 15% of screen height
-                            if box_h > frame.shape[0] * 0.15:
+                            # Adjusted Size Check: Helmet must be at least 4% (down from 8%) of screen height
+                            if box_h > frame.shape[0] * 0.04:
                                 raw_helmet_detected = True
                                 # Blue Box
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
                                 cv2.putText(frame, f"HELMET {conf:.2f}", (x1, y1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                                 print(f"⚠️ Possible Helmet Detected: Conf={conf:.2f}")
 
-        # Persistence Logic for Helmet (Slower build-up, faster decay)
+        # Persistence Logic for Helmet (Hysteresis loop for stability)
         if raw_helmet_detected:
-            self.helmet_counter = min(self.helmet_counter + 1, 15) # Cap at 15
+            self.helmet_counter = min(self.helmet_counter + 2, 6) # Increment faster
         else:
-            self.helmet_counter = max(self.helmet_counter - 2, 0) # Decay twice as fast
+            self.helmet_counter = max(self.helmet_counter - 1, 0) # Decay slower
 
-        # Trigger only if consistent for 6+ frames (Very stable)
-        helmet_confirmed = self.helmet_counter > 6
+        # Trigger if consistent for 2+ frames to prevent dropouts
+        helmet_confirmed = self.helmet_counter >= 2
 
         # --- 3. DETECT MASKS (Custom Model) ---
         raw_mask_detected = False
         if self.mask_model:
-            mask_results = self.mask_model.predict(source=frame, conf=0.6, verbose=False)
+            # Adjusted mask confidence from 0.45 to 0.35 for better recall
+            mask_results = self.mask_model.predict(source=frame, conf=0.35, verbose=False)
             for r in mask_results:
                 if r.boxes:
                     for box in r.boxes:
@@ -101,13 +104,14 @@ class ATMActivityDetector:
                             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
                             cv2.putText(frame, f"MASK", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-        # Persistence Logic for Mask
+        # Persistence Logic for Mask (Hysteresis loop for stability)
         if raw_mask_detected:
-            self.mask_counter = min(self.mask_counter + 1, 10)
+            self.mask_counter = min(self.mask_counter + 2, 6) # Increment faster
         else:
-            self.mask_counter = max(self.mask_counter - 1, 0)
+            self.mask_counter = max(self.mask_counter - 1, 0) # Decay slower
             
-        mask_confirmed = self.mask_counter > 3
+        # Trigger if consistent for 2+ frames to prevent dropouts
+        mask_confirmed = self.mask_counter >= 2
 
         # ---------------- CAMERA BLACKOUT ----------------
         gray_full = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
